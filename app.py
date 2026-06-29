@@ -113,7 +113,7 @@ with col2:
     ]
     event_options = [
         "Click to select", "GeoRiskPH Regular Training", "GeoRiskPH Training of Trainers",
-        "GeoRiskPH Regional Training", "GeoRiskPH Convention", "PlanSmart for Sustainable Human Settlements"
+        "GeoRiskPH Regional Training", "GeoRiskPH Convention", "PlanSmart for Sustainable Human Settlements Training"
     ]
     affiliation = st.selectbox("Affiliation", options=affiliation_options, index=0)
     office_name = st.text_input("Full Name of Office/Agency/Organization", placeholder="e.g., Quezon City Disaster Risk Reduction and Management Office")

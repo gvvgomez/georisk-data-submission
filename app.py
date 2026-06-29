@@ -173,7 +173,9 @@ if st.button("🚀 Proceed to Extent Validation", type="primary"):
     elif affiliation == "Click to select":
         st.error("Please select a valid profile affiliation.")
     elif uploaded_file is None:
-        st.error("Missing dataset attachment.")
+        st.error("Please upload a valid dataset.")
+    elif event_type == "Click to select":
+        st.error("Please specify the GeoRiskPH event you attended.")
     elif selected_municipality == "Click to select":
         st.error("Please specify the target location extent parameters.")
     else:
@@ -470,10 +472,9 @@ if st.session_state.screening_triggered and st.session_state.processed_layers:
     # Define your deployed Apps Script Web App URL gateway here
     API_GATEWAY_URL = "https://script.google.com/macros/s/AKfycbwwRnsU-GksEAi4hqhfh-yflTk-YcFXcQqwHH4omarDm2xr-tWFvmj2CnxZlz0kocG9/exec"
 
-    if st.button("💾 Submit for Processing", type="primary", use_container_width=True):
+    if st.button("💾 Submit for Official Processing", type="primary", use_container_width=True):
         with st.spinner("Uploading dataset bundle to Google Drive and documenting schema logs..."):
             
-            # Read current values out of the interactive metadata matrix components dynamically
             compiled_layers_payload = []
             for idx, layer in enumerate(st.session_state.processed_layers):
                 l_name = layer["name"]
@@ -482,7 +483,9 @@ if st.session_state.screening_triggered and st.session_state.processed_layers:
                 l_geom = str(l_gdf.geom_type.dropna().iloc[0]) if not l_gdf.empty else "Unknown"
                 l_crs = l_gdf.crs.name if l_gdf.crs else "Undefined"
                 
-                # Fetch selected item out of the widget tree state
+                # Fetch row lengths dynamically
+                l_count = len(l_gdf) if not l_gdf.empty else 0
+                
                 selected_template = st.session_state.get(f"target_temp_{l_name}_{idx}", "Building Footprints")
                 
                 compiled_layers_payload.append({
@@ -490,16 +493,14 @@ if st.session_state.screening_triggered and st.session_state.processed_layers:
                     "fileFormat": l_fmt.upper(),
                     "geometry": l_geom,
                     "coordinateSystem": l_crs,
+                    "featureCount": l_count, # Captures record count for this individual sub-layer
                     "templateMatch": selected_template
                 })
             
-            # Reset read cursor and encode original uploaded file binary directly to safe base64
             uploaded_file.seek(0)
             import base64
             file_bytes = uploaded_file.read()
             encoded_base64_string = base64.b64encode(file_bytes).decode("utf-8")
-            
-            # Recalculate extension globally to bypass scope-level NameErrors
             current_file_ext = os.path.splitext(uploaded_file.name)[1].lower()
             
             # Build unified JSON payload
@@ -510,11 +511,12 @@ if st.session_state.screening_triggered and st.session_state.processed_layers:
                 "mobile": mobile,
                 "affiliation": affiliation,
                 "officeName": office_name,
+                "eventType": event_type, # 🌟 Sent securely to Apps Script
                 "region": st.session_state.snap_region,
                 "province": st.session_state.snap_province,
                 "municipality": st.session_state.snap_muni,
                 "fileName": uploaded_file.name,
-                "fileExtension": current_file_ext,  # Uses the safely scoped variable
+                "fileExtension": current_file_ext,
                 "fileBase64": encoded_base64_string,
                 "layers": compiled_layers_payload
             }

@@ -1,0 +1,42 @@
+# === Python Core ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.elc
+.Python
+env/
+venv/
+.env
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# === Streamlit Configuration & Runtime ===
+.streamlit/config.toml
+.streamlit/secrets.toml
+!localhost
+
+# === App Specific Temp Directories ===
+# Protects your disk from leaving heavy shapefile workspace artifacts tracked in Git
+temp_screening_workspace/
+.artifacts/
+*.tmp
+*.log
+
+# === GIS & Spatial Data Payload Formats (Optional Safeguard) ===
+# Uncomment these if you want to prevent accidental commits of heavy local data files
+# *.zip
+# *.gpkg
+# *.geojson
+# *.csv
+# *.shp
+# *.dbf
+# *.shx
+# *.prj
+
+# === Operating System Noise ===
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store

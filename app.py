@@ -124,17 +124,17 @@ st.markdown("---")
 # Section 2: Local Dataset Upload
 st.header("📁 Data Submission")
 st.subheader("File Upload")
+st.markdown("Accepted formats: zipped shapefile (**shp**), zipped file geodatabase (**gdb**), geopackage (**gpkg**), keyhole markup (**kml**/**kmz**), and comma-separated values (**csv**) with latitude and longitude coordinates.")
+st.image("accepted_formats.png", width="stretch")
 uploaded_file = st.file_uploader(
     "Click button or drag-and-drop to upload. Maximum file size: 200 MB.",
     type=['zip', 'kml', 'kmz', 'gpkg', 'csv'],
     accept_multiple_files=False
 )
 
-st.markdown("Accepted formats: zipped shapefile (**shp**), zipped file geodatabase (**gdb**), geopackage (**gpkg**), keyhole markup (**kml**/**kmz**), and comma-separated values (**csv**) with latitude and longitude coordinates.")
-st.image("accepted_formats.png", width="stretch")
-
 st.subheader("Geographic Extent")
 hierarchy_df = fetch_location_hierarchy_live()
+st.markdown("Please provide the geographic extent or coverage of the data to be submitted, not the address of the office or organization you are representing.")
 
 if hierarchy_df.empty:
     st.error("⚠️ Connection failure. Verify if your internet access can reach the ulap-nga web services.")
@@ -162,7 +162,7 @@ else:
         else:
             selected_municipality = st.selectbox("Municipality/City", options=["Click to select"], disabled=True)
 
-st.markdown("Please provide the geographic extent or coverage of the data to be submitted, not the address of the office or organization you are representing.")
+st.markdown("---")
 
 # ==========================================
 # 4. PROCESSING & INGESTION PIPELINE
@@ -186,7 +186,7 @@ if st.button("🚀 Proceed to Extent Validation", type="primary"):
         if file_ext not in ACCEPTED_EXTENSIONS:
             st.error(f"❌ **Unsupported File Type**: `{file_ext}` files are not accepted by the LDS pipeline. Please provide one of the standard formats listed above.")
         else:
-            st.info("Parsing file geometry formats into pipeline session container...")
+            st.info("Parsing file upload contents...")
             
             temp_dir = "./temp_screening_workspace"
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -413,6 +413,7 @@ if st.session_state.screening_triggered and st.session_state.processed_layers:
     # PERSISTENT PROPERTIES MATRIX WITH GEOMETRY TRACKING
     # ------------------------------------------
     st.subheader("📊 Layer Properties and Template Matching")
+    st.markdown("Attribute and geometry information for each dataset in your uploaded file are shown below. Please select the best-matching template (both attribute and geometry) to your local dataset. Geometry validation is performed automatically. If a conflict is detected, please review your dataset and ensure it aligns with the expected geometry type of the selected template.")
     
     for i, layer in enumerate(st.session_state.processed_layers):
         name = layer["name"]
@@ -472,7 +473,7 @@ if st.session_state.screening_triggered and st.session_state.processed_layers:
     # Define your deployed Apps Script Web App URL gateway here
     API_GATEWAY_URL = "https://script.google.com/macros/s/AKfycbwwRnsU-GksEAi4hqhfh-yflTk-YcFXcQqwHH4omarDm2xr-tWFvmj2CnxZlz0kocG9/exec"
 
-    if st.button("💾 Submit for Official Processing", type="primary", use_container_width=True):
+    if st.button("💾 Submit for Official Processing", type="primary"):
         with st.spinner("Uploading dataset bundle to Google Drive and documenting schema logs..."):
             
             compiled_layers_payload = []
@@ -511,7 +512,7 @@ if st.session_state.screening_triggered and st.session_state.processed_layers:
                 "mobile": mobile,
                 "affiliation": affiliation,
                 "officeName": office_name,
-                "eventType": event_type, # 🌟 Sent securely to Apps Script
+                "eventType": event_type, 
                 "region": st.session_state.snap_region,
                 "province": st.session_state.snap_province,
                 "municipality": st.session_state.snap_muni,
@@ -520,13 +521,41 @@ if st.session_state.screening_triggered and st.session_state.processed_layers:
                 "fileBase64": encoded_base64_string,
                 "layers": compiled_layers_payload
             }
+
+            # ========================================================
+            # 🚀 ADDED: NETWORK EXECUTION & RESPONSE HANDLING
+            # ========================================================
+            import requests
+
+            try:
+                # Post data payload to Apps Script execution gateway
+                # Google Apps Script macros require Streamlit to follow macro redirects (handled natively by requests)
+                response = requests.post(API_GATEWAY_URL, json=payload, timeout=60)
+                
+                if response.status_code == 200:
+                    try:
+                        res_data = response.json()
+                        if res_data.get("status") == "success":
+                            st.success("🎉 **Submission Complete!** Data layer logs have been officially recorded in the database system.")
+                            st.balloons()
+                        else:
+                            st.error(f"❌ **Apps Script Error**: {res_data.get('message', 'Unknown runtime exception context.')}")
+                    except ValueError:
+                        st.error("❌ **Malformed API Response**: Could not parse structural server output confirmation.")
+                else:
+                    st.error(f"❌ **Server Connection Failure**: Gateway returned response status code {response.status_code}")
+                    
+            except requests.exceptions.Timeout:
+                st.error("❌ **Network Timeout**: The upload took too long. If you are uploading a large Geodatabase/Shapefile bundle, consider optimizing feature count metrics first.")
+            except requests.exceptions.RequestException as e:
+                st.error(f"❌ **Network Link Error**: Unable to route data packet to entry point endpoint. Details: {str(e)}")
             
             # Execute transactional API call to Google Workspace API gateway
             try:
                 response = requests.post(API_GATEWAY_URL, json=payload, timeout=60)
                 if response.status_code == 200 and response.json().get("status") == "success":
                     st.balloons()
-                    st.success("🎉 Data submission complete! GeoRiskPH has received your files and will provide updates regarding their integration into the system.")
+                    st.success("🎉 Data submission complete! GeoRiskPH has received your files and will provide updates on their integration into the system.")
                 else:
                     error_details = response.json().get("message") if response.status_code == 200 else response.text
                     st.error(f"❌ Storage Pipeline Refusal: Failed to push data logs. System Message: {error_details}")
@@ -542,7 +571,7 @@ if st.session_state.screening_triggered and st.session_state.processed_layers:
     # Show the reset option if a submission was attempted in the current session state
     if st.session_state.get("submission_attempted", False):
         st.markdown("---")
-        if st.button("🔄 Make Another Submission", use_container_width=True):
+        if st.button("🔄 Make Another Submission", use_container_width=False):
             # Clear critical session state tracking variables if necessary
             if "processed_layers" in st.session_state:
                 del st.session_state.processed_layers

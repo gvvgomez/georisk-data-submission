@@ -111,9 +111,13 @@ with col2:
         "Non-Government Organization", "Multinational Corporation", "Large Enterprise",
         "Micro/Small/Medium Enterprise", "Individual - Filipino", "Individual - Foreigner"
     ]
+    event_options = [
+        "Click to select", "GeoRiskPH Regular Training", "GeoRiskPH Training of Trainers",
+        "GeoRiskPH Regional Training", "GeoRiskPH Convention", "PlanSmart for Sustainable Human Settlements"
+    ]
     affiliation = st.selectbox("Affiliation", options=affiliation_options, index=0)
     office_name = st.text_input("Full Name of Office/Agency/Organization", placeholder="e.g., Quezon City Disaster Risk Reduction and Management Office")
-    office_name = st.text_input("Complete Address of Office/Agency/Organization")
+    event_type = st.selectbox("GeoRiskPH Event Attended", options=event_options, index=0)
 
 st.markdown("---")
 
@@ -215,56 +219,90 @@ if st.button("🚀 Proceed to Extent Validation", type="primary"):
                     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                         archive_files = zip_ref.namelist()
                         
-                        # Separate files by their root name to look for loose shapefile components
-                        shapefile_components = {}
+                        # Check if this zip contains an Esri File Geodatabase (.gdb folder wrapper)
+                        gdb_directories = set()
                         for f_path in archive_files:
-                            # Skip directories or macOS internal noise files
-                            if f_path.endswith('/') or '__MACOSX' in f_path or '.DS_Store' in f_path:
-                                continue
-                            base_name, ext = os.path.splitext(os.path.basename(f_path))
-                            ext = ext.lower()
-                            
-                            if ext in ['.shp', '.shx', '.dbf', '.prj']:
-                                # Group components by their base prefix inside their respective directories
-                                dir_prefix = os.path.dirname(f_path)
-                                lookup_key = os.path.join(dir_prefix, base_name)
-                                if lookup_key not in shapefile_components:
-                                    shapefile_components[lookup_key] = set()
-                                shapefile_components[lookup_key].add(ext)
+                            if '.gdb/' in f_path.lower():
+                                # Extract the exact path up to the '.gdb' directory name
+                                parts = f_path.split('/')
+                                for idx, part in enumerate(parts):
+                                    if part.lower().endswith('.gdb'):
+                                        gdb_path_prefix = '/'.join(parts[:idx+1])
+                                        gdb_directories.add(gdb_path_prefix)
                         
-                        # TIER 2 Validation: Check for mandatory Esri Shapefile structural components
-                        required_components = {'.shp', '.shx', '.dbf', '.prj'}
-                        missing_reports = []
-                        
-                        for shp_base, found_exts in shapefile_components.items():
-                            missing_exts = required_components - found_exts
-                            if missing_exts:
-                                missing_reports.append(
-                                    f"• `{os.path.basename(shp_base)}` is missing mandatory components: **{', '.join(missing_exts)}**"
-                                )
-                        
-                        if missing_reports:
-                            shapefile_validation_failed = True
-                            st.error("❌ **Invalid Shapefile Structure**: The uploaded zip file contains an incomplete Esri Shapefile cluster.")
-                            for report in missing_reports:
-                                st.markdown(report)
-                            st.warning("💡 *Note: Every shapefile requires a matching `.shp` (geometry), `.shx` (index), `.dbf` (attributes), and `.prj` (projection/CRS details) bundled together.*")
-                        
-                        # Proceed with extraction only if structural requirements are met
-                        if not shapefile_validation_failed:
+                        # --- CASE A: Handle File Geodatabase Extraction ---
+                        if gdb_directories:
                             zip_ref.extractall(temp_dir)
+                            import fiona
                             
-                            for root, _, files in os.walk(temp_dir):
-                                for file in files:
-                                    full_path = os.path.join(root, file)
-                                    internal_ext = os.path.splitext(file)[1].lower()
-                                    if internal_ext in ['.shp', '.geojson', '.gpkg', '.kml']:
-                                        try:
-                                            gdf = gpd.read_file(full_path)
-                                            if not gdf.empty:
-                                                st.session_state.processed_layers.append({"name": file, "fmt": internal_ext, "gdf": gdf})
-                                        except:
-                                            pass
+                            for gdb_rel_path in gdb_directories:
+                                full_gdb_path = os.path.join(temp_dir, gdb_rel_path.replace('/', os.sep))
+                                gdb_name = os.path.basename(full_gdb_path)
+                                
+                                try:
+                                    # File Geodatabases can house multiple feature classes. Loop through each layer.
+                                    layers = fiona.listlayers(full_gdb_path)
+                                    for layer_name in layers:
+                                        gdf = gpd.read_file(full_gdb_path, layer=layer_name)
+                                        if not gdf.empty:
+                                            # Using "GDB Name > Layer Name" to keep the map legend precise
+                                            st.session_state.processed_layers.append({
+                                                "name": f"{gdb_name} [{layer_name}]",
+                                                "fmt": ".gdb",
+                                                "gdf": gdf
+                                            })
+                                except Exception as e:
+                                    st.warning(f"⚠️ Failed to parse Geodatabase layer components: {str(e)}")
+                        
+                        # --- CASE B: Handle Standard Shapefiles / Loose Vectors ---
+                        else:
+                            shapefile_components = {}
+                            for f_path in archive_files:
+                                if f_path.endswith('/') or '__MACOSX' in f_path or '.DS_Store' in f_path:
+                                    continue
+                                base_name, ext = os.path.splitext(os.path.basename(f_path))
+                                ext = ext.lower()
+                                
+                                if ext in ['.shp', '.shx', '.dbf', '.prj']:
+                                    dir_prefix = os.path.dirname(f_path)
+                                    lookup_key = os.path.join(dir_prefix, base_name)
+                                    if lookup_key not in shapefile_components:
+                                        shapefile_components[lookup_key] = set()
+                                    shapefile_components[lookup_key].add(ext)
+                            
+                            # TIER 2 Validation: Check for mandatory Esri Shapefile structural components
+                            required_components = {'.shp', '.shx', '.dbf', '.prj'}
+                            missing_reports = []
+                            
+                            for shp_base, found_exts in shapefile_components.items():
+                                missing_exts = required_components - found_exts
+                                if missing_exts:
+                                    missing_reports.append(
+                                        f"• `{os.path.basename(shp_base)}` is missing mandatory components: **{', '.join(missing_exts)}**"
+                                    )
+                            
+                            if missing_reports:
+                                shapefile_validation_failed = True
+                                st.error("❌ **Invalid Shapefile Structure**: The uploaded zip file contains an incomplete Esri Shapefile cluster.")
+                                for report in missing_reports:
+                                    st.markdown(report)
+                                st.warning("💡 *Note: Every shapefile requires a matching `.shp` (geometry), `.shx` (index), `.dbf` (attributes), and `.prj` (projection/CRS details) bundled together.*")
+                            
+                            # Proceed with standard extraction if shapefiles match specification boundaries
+                            if not shapefile_validation_failed:
+                                zip_ref.extractall(temp_dir)
+                                
+                                for root, _, files in os.walk(temp_dir):
+                                    for file in files:
+                                        full_path = os.path.join(root, file)
+                                        internal_ext = os.path.splitext(file)[1].lower()
+                                        if internal_ext in ['.shp', '.geojson', '.gpkg', '.kml']:
+                                            try:
+                                                gdf = gpd.read_file(full_path)
+                                                if not gdf.empty:
+                                                    st.session_state.processed_layers.append({"name": file, "fmt": internal_ext, "gdf": gdf})
+                                            except:
+                                                pass
                 
                 # --- DIRECT VECTORS (.geojson, .kml, .kmz, .gpkg) ---
                 else:
@@ -382,18 +420,21 @@ if st.session_state.screening_triggered and st.session_state.processed_layers:
         detected_geom = str(gdf.geom_type.dropna().iloc[0]) if not gdf.empty else "Unknown"
         crs_str = gdf.crs.name if gdf.crs else "Undefined"
         
+        # Calculate total spatial records/rows within this layer vector
+        feature_count = len(gdf) if not gdf.empty else 0
+        
         with st.container():
-            col_a, col_b, col_c, col_d, col_e, col_f = st.columns([2, 1, 1.2, 1.8, 2, 2.5])
+            col_a, col_b, col_c, col_d, col_e, col_f = st.columns([2, 1, 1.2, 1.8, 1.2, 2.5])
             with col_a:
-                st.text_input("File Name", value=name, disabled=True, key=f"fn_{name}_{i}")
+                st.text_input("File Name", value=name, disabled=True, key=f"fn_matrix_{i}")
             with col_b:
-                st.text_input("Format", value=fmt.upper(), disabled=True, key=f"fmt_{name}_{i}")
+                st.text_input("Format", value=fmt.upper(), disabled=True, key=f"fmt_matrix_{i}")
             with col_c:
-                st.text_input("Geometry", value=detected_geom, disabled=True, key=f"geom_{name}_{i}")
+                st.text_input("Geometry", value=detected_geom, disabled=True, key=f"geom_matrix_{i}")
             with col_d:
-                st.text_input("Coordinate System", value=crs_str, disabled=True, key=f"crs_{name}_{i}")
+                st.text_input("Coordinate System", value=crs_str, disabled=True, key=f"crs_matrix_{i}")
             with col_e:
-                st.text_input("Extent", value=f"{st.session_state.snap_muni}", disabled=True, key=f"ext_{name}_{i}")
+                st.text_input("Number of Features", value=str(feature_count), disabled=True, key=f"count_matrix_{i}")
             with col_f:
                 target_selection = st.selectbox(
                     "Target Feature Template Match",
